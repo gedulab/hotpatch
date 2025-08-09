@@ -28,8 +28,17 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+#include <stdio.h>
+#include <stdlib.h> 
+
+#include <unistd.h>
+#include <getopt.h>
 #include <hotpatch_config.h>
 #include <hotpatch.h>
+#include <string.h>
+
+extern char *strdup (const char *__s);
 
 struct hp_options {
     pid_t pid;

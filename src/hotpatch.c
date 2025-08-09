@@ -28,9 +28,24 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include <stdio.h>  
+#include <stdlib.h> 
+#include <dlfcn.h>
+#include <unistd.h>
+#include <sys/ptrace.h>
+#include <asm/ptrace.h>
+#include <linux/ptrace.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/user.h>  // 尝试包含这个
+#include <errno.h>
 #include <hotpatch_config.h>
 #include <hotpatch_internal.h>
 #include <hotpatch.h>
+#include <string.h>
+#include <elf.h>
+#include <sys/uio.h>
+
 #ifdef HOTPATCH_USE_ASM
 	#include <call32.h>
 	#include <call64.h>
@@ -40,7 +55,13 @@
 #define LIB_C "libc"
 #define LIB_DL "libdl"
 #define LIB_PTHREAD "libpthread"
-
+#ifndef __func__
+#ifdef __FUNCTION__
+#define __func__ __FUNCTION__
+#else
+#define __func__ "<unknown>"  /* Or some other default */
+#endif
+#endif
 static int hotpatch_gather_functions(hotpatch_t *hp)
 {
 	int verbose = 0;
@@ -123,9 +144,9 @@ do { \
 		LD_LIB_FIND_FN_ADDR("dlclose", hp->fn_dlclose, LIB_DL);
 		LD_LIB_FIND_FN_ADDR("dlsym", hp->fn_dlsym, LIB_DL);
 	} else {
-		LD_LIB_FIND_FN_ADDR("__libc_dlopen_mode", hp->fn_dlopen, LIB_C);
-		LD_LIB_FIND_FN_ADDR("__libc_dlclose", hp->fn_dlclose, LIB_C);
-		LD_LIB_FIND_FN_ADDR("__libc_dlsym", hp->fn_dlsym, LIB_C);
+		LD_LIB_FIND_FN_ADDR("dlopen", hp->fn_dlopen, LIB_C);
+		LD_LIB_FIND_FN_ADDR("dlclose", hp->fn_dlclose, LIB_C);
+		LD_LIB_FIND_FN_ADDR("dlsym", hp->fn_dlsym, LIB_C);
 	}
 	if (!hp->fn_dlopen || !hp->fn_dlsym) {
 		if (verbose > 0)
@@ -424,13 +445,13 @@ static int hp_wait(pid_t pid)
 	}
 	return 0;
 }
-
-static int hp_get_regs(pid_t pid, struct user *regs)
+#if defined(__x86_64__) 
+static int hp_get_regs(pid_t pid, struct user_regs_struct *regs)
 {
 	if (!regs)
 		return -1;
 	memset(regs, 0, sizeof(*regs));
-	if (ptrace(PTRACE_GETREGS, pid, NULL, regs) < 0) {
+	if (ptrace(PTRACE_GETREGSET, pid, NULL, regs) < 0) {
 		int err = errno;
 		fprintf(stderr,
 				"[%s:%d] Ptrace Getregs for PID %d failed with error: %s\n",
@@ -440,11 +461,11 @@ static int hp_get_regs(pid_t pid, struct user *regs)
 	return 0;
 }
 
-static int hp_set_regs(pid_t pid, const struct user *regs)
+static int hp_set_regs(pid_t pid, const struct user_regs_struct *regs)
 {
 	if (!regs)
 		return -1;
-	if (ptrace(PTRACE_SETREGS, pid, NULL, regs) < 0) {
+	if (ptrace(PTRACE_SETREGSET, pid, NULL, regs) < 0) {
 		int err = errno;
 		fprintf(stderr,
 				"[%s:%d] Ptrace Setregs for PID %d failed with error: %s\n",
@@ -453,7 +474,49 @@ static int hp_set_regs(pid_t pid, const struct user *regs)
 	}
 	return 0;
 }
+#else 
+static int hp_get_regs(pid_t pid, struct user_regs_struct *regs)
+{
+	if (!regs)
+		return -1;
+	struct iovec iovec;
+	long retcode = 0;
 
+	memset(regs, 0, sizeof(*regs));
+
+	iovec.iov_base = regs;
+	iovec.iov_len = sizeof(struct user_regs_struct);
+	retcode = ptrace(PTRACE_GETREGSET, pid, NT_PRSTATUS, &iovec);	
+	if (retcode < 0) {
+		int err = errno;
+		fprintf(stderr,
+				"[%s:%d] Ptrace Getregs for PID %d failed with error: %s\n",
+				__func__, __LINE__, pid, strerror(err));
+		return -1;
+	}
+	return 0;
+}
+
+static int hp_set_regs(pid_t pid, const struct user_regs_struct *regs)
+{
+	if (!regs)
+		return -1;
+	struct iovec iovec;
+	long retcode = 0;
+	
+	iovec.iov_base = regs;
+	iovec.iov_len = sizeof(struct user_regs_struct);
+	retcode = ptrace(PTRACE_SETREGSET, pid, NT_PRSTATUS, &iovec);
+	if (retcode == -1) {
+		int err = errno;
+		fprintf(stderr,
+				"[%s:%d] Ptrace Setregs for PID %d failed with error: %s\n",
+				__func__, __LINE__, pid, strerror(err));
+		return -1;
+	}
+	return 0;
+}
+#endif
 static int hp_copydata(pid_t pid, uintptr_t target,
 		const unsigned char *data, size_t datasz, int verbose)
 {
@@ -524,7 +587,12 @@ int hotpatch_set_execution_pointer(hotpatch_t *hp, uintptr_t ptr)
 #undef HP_REG_IP
 #undef HP_REG_SP
 #undef HP_REG_AX
-#if __WORDSIZE == 64
+#if defined(__aarch64__)
+	#define HP_REG_IP_STR "PC"
+	#define HP_REG_IP(A) A.pc
+	#define HP_REG_SP(A) A.sp
+	#define HP_REG_AX(A) A.regs[0]
+#elif defined(__x86_64__)
 	#define HP_REG_IP_STR "RIP"
 	#define HP_REG_IP(A) A.regs.rip
 	#define HP_REG_SP(A) A.regs.rsp
@@ -537,9 +605,9 @@ int hotpatch_set_execution_pointer(hotpatch_t *hp, uintptr_t ptr)
 #endif
 	int rc = -1;
 	if (ptr && hp && hp->attached) {
-		struct user regs;
+		struct user_regs_struct regs;
 		memset(&regs, 0, sizeof(regs));
-		if (ptrace(PTRACE_GETREGS, hp->pid, NULL, &regs) < 0) {
+		if (ptrace(PTRACE_GETREGSET, hp->pid, NULL, &regs) < 0) {
 			int err = errno;
 			fprintf(stderr, "[%s:%d] Ptrace getregs failed with error %s\n",
 					__func__, __LINE__, strerror(err));
@@ -551,7 +619,7 @@ int hotpatch_set_execution_pointer(hotpatch_t *hp, uintptr_t ptr)
 			if (ptr == hp->exe_entry_point)
 				ptr += sizeof(void *);
 			HP_REG_IP(regs) = ptr;
-			if (ptrace(PTRACE_SETREGS, hp->pid, NULL, &regs) < 0) {
+			if (ptrace(PTRACE_SETREGSET, hp->pid, NULL, &regs) < 0) {
 				int err = errno;
 				fprintf(stderr, "[%s:%d] Ptrace setregs failed with error %s\n",
 						__func__, __LINE__, strerror(err));
@@ -620,8 +688,8 @@ int hotpatch_inject_library(hotpatch_t *hp, const char *dll, const char *symbol,
 				__func__, __LINE__, tgtsz);
 	do {
 		/* The stack is read-write and not executable */
-		struct user iregs; /* intermediate registers */
-		struct user oregs; /* original registers */
+		struct user_regs_struct iregs; /* intermediate registers */
+		struct user_regs_struct oregs; /* original registers */
 		int verbose = hp->verbose;
 		uintptr_t result = 0;
 		uintptr_t stack[4] = { 0, 0, 0, 0}; /* max arguments of the functions we
@@ -661,7 +729,15 @@ do { \
 	if ((rc = hp_get_regs(hp->pid, &iregs)) < 0) \
 		break; \
 } while (0)
-#if __WORDSIZE == 64
+#if defined(__aarch64__)
+	#define HP_PASS_ARGS2FUNC(A,FN,ARG1,ARG2) \
+	do { \
+		A.regs[1] = ARG2; \
+		A.regs[0] = ARG1; \
+		A.pc = FN; \
+	} while (0)
+    #define HP_REDZONE 0
+#elif  defined(__x86_64__)
 	#define HP_PASS_ARGS2FUNC(A,FN,ARG1,ARG2) \
 	do { \
 		A.regs.rsi = ARG2; \
@@ -725,8 +801,8 @@ do { \
 		heapptr = HP_REG_AX(iregs); /* keep a copy of this pointer */
 		/* Copy data to the malloced area */
 		if (verbose > 1)
-			fprintf(stderr, "[%s:%d] Copying "LU" bytes to 0x"LX".\n", __func__,
-					__LINE__, tgtsz, result);
+			fprintf(stderr, "[%s:%d] Copying "LU" bytes to 0x"LX" %p.\n", __func__,
+					__LINE__, tgtsz, result, heapptr);
 		if (!result)
 			break;
 		if ((rc = hp_copydata(hp->pid, result, mdata, tgtsz, verbose)) < 0)

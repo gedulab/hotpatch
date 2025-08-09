@@ -30,7 +30,10 @@
  */
 #ifndef __LIBHOTPATCH_INTERNAL_H__
 #define __LIBHOTPATCH_INTERNAL_H__
-
+#include <stdint.h>
+#include <sys/types.h>
+#include <errno.h>
+#include <unistd.h>
 #include <hotpatch_config.h>
 
 #define OS_MAX_BUFFER 512

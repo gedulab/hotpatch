@@ -69,7 +69,7 @@ int main(int argc, char **argv, char **envp)
 	assert(ptrace(PTRACE_ATTACH, pid, NULL, NULL) == 0);
 
 	while (1) {
-		struct user *cldata = NULL;
+		struct user_regs_struct *cldata = NULL;
 		long retval = 0;
 		waitpid(-1, &status, 0);
 		if (WIFEXITED(status) || WIFSIGNALED(status)) {
@@ -127,7 +127,7 @@ int main(int argc, char **argv, char **envp)
 		}
 		cldata->regs.orig_rax++;
 		ptrace(PTRACE_SETREGS, pid, NULL, cldata);
-		if ((retval = ptrace(PTRACE_PEEKUSER, pid, offsetof(struct user, u_fpvalid), NULL)) < 0) {
+		if ((retval = ptrace(PTRACE_PEEKUSER, pid, offsetof(struct user_regs_struct, u_fpvalid), NULL)) < 0) {
 			int err = errno;
 			printf("[%s:%d] Return value: "LU" Error: %s\n", __func__, __LINE__, retval, strerror(err));
 		} else {

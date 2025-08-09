@@ -28,6 +28,10 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include <assert.h> 
+#include <stdio.h>
+#include <stddef.h> 
+#include <time.h>
 #include <hotpatch_config.h>
 #ifdef HOTPATCH_HAS_ASSERT_H
 	#undef NDEBUG

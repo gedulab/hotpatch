@@ -28,6 +28,9 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include <assert.h> 
+#include <stdio.h>
+#include <stddef.h>
 #include <hotpatch_config.h>
 #include <hotpatch_internal.h>
 #ifdef HOTPATCH_HAS_ASSERT_H

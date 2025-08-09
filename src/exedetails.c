@@ -28,9 +28,16 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include <stddef.h> 
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <elf.h>
 #include <hotpatch_config.h>
 #include <hotpatch_internal.h>
 #include <hotpatch.h>
+
+extern char *strdup (const char *__s);
 
 #if __WORDSIZE == 64
 	typedef Elf64_Ehdr Elf_Ehdr;
@@ -490,7 +497,8 @@ static int exe_load_headers(struct elf_internals *ei, int verbose)
 		fprintf(stderr, "[%s:%d] Entry point %p\n", __func__, __LINE__,
 				(void *)hdr.e_entry);
 	ei->entry_point = (uintptr_t)hdr.e_entry;
-	if (hdr.e_machine != EM_X86_64 && hdr.e_machine != EM_386) {
+	if (hdr.e_machine != EM_X86_64 && hdr.e_machine != EM_386
+		&& hdr.e_machine != EM_AARCH64 ) {
 		LOG_ERROR_UNSUPPORTED_PROCESSOR;
 		return -1;
 	}

@@ -28,8 +28,16 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include <stdio.h>
+#include <stdlib.h> 
+#include <string.h>
+#include <sys/stat.h>
 #include <hotpatch_config.h>
 #include <hotpatch_internal.h>
+extern char *strdup (const char *__s);
+extern char *strtok(char * str, const char * delim);
+extern char *strtok_r(char * str, const char * delim,
+                      char ** saveptr);
 
 enum {
     PROCMAPS_PERMS_NONE		= 0x0,
